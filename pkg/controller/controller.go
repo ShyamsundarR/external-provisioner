@@ -33,6 +33,8 @@ import (
 	"sigs.k8s.io/sig-storage-lib-external-provisioner/controller"
 	"sigs.k8s.io/sig-storage-lib-external-provisioner/util"
 
+	codes "google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -179,6 +181,7 @@ type csiProvisioner struct {
 
 var _ controller.Provisioner = &csiProvisioner{}
 var _ controller.BlockProvisioner = &csiProvisioner{}
+var _ controller.ProvisionerExt = &csiProvisioner{}
 
 var (
 	// Each provisioner have a identify string to distinguish with others. This
@@ -353,8 +356,13 @@ func getVolumeCapability(
 }
 
 func (p *csiProvisioner) Provision(options controller.ProvisionOptions) (*v1.PersistentVolume, error) {
+	// TODO(Shyam) Call ProvisionerExt instead of returning error
+	return nil, fmt.Errorf("Not implemented")
+}
+
+func (p *csiProvisioner) ProvisionExt(options controller.ProvisionOptions) (*v1.PersistentVolume, controller.ProvisioningState, error) {
 	if options.StorageClass == nil {
-		return nil, errors.New("storage class was nil")
+		return nil, controller.ProvisioningFinished, errors.New("storage class was nil")
 	}
 
 	migratedVolume := false
@@ -367,7 +375,7 @@ func (p *csiProvisioner) Provision(options controller.ProvisionOptions) (*v1.Per
 			klog.V(2).Infof("translating storage class for in-tree plugin %s to CSI", options.StorageClass.Provisioner)
 			storageClass, err := csitranslationlib.TranslateInTreeStorageClassToCSI(p.supportsMigrationFromInTreePluginName, options.StorageClass)
 			if err != nil {
-				return nil, fmt.Errorf("failed to translate storage class: %v", err)
+				return nil, controller.ProvisioningFinished, fmt.Errorf("failed to translate storage class: %v", err)
 			}
 			options.StorageClass = storageClass
 			migratedVolume = true
@@ -381,13 +389,13 @@ func (p *csiProvisioner) Provision(options controller.ProvisionOptions) (*v1.Per
 	if options.PVC.Spec.DataSource != nil {
 		// PVC.Spec.DataSource.Name is the name of the VolumeSnapshot API object
 		if options.PVC.Spec.DataSource.Name == "" {
-			return nil, fmt.Errorf("the PVC source not found for PVC %s", options.PVC.Name)
+			return nil, controller.ProvisioningFinished, fmt.Errorf("the PVC source not found for PVC %s", options.PVC.Name)
 		}
 
 		switch options.PVC.Spec.DataSource.Kind {
 		case snapshotKind:
 			if *(options.PVC.Spec.DataSource.APIGroup) != snapshotAPIGroup {
-				return nil, fmt.Errorf("the PVC source does not belong to the right APIGroup. Expected %s, Got %s", snapshotAPIGroup, *(options.PVC.Spec.DataSource.APIGroup))
+				return nil, controller.ProvisioningFinished, fmt.Errorf("the PVC source does not belong to the right APIGroup. Expected %s, Got %s", snapshotAPIGroup, *(options.PVC.Spec.DataSource.APIGroup))
 			}
 			rc.snapshot = true
 		case pvcKind:
@@ -397,16 +405,16 @@ func (p *csiProvisioner) Provision(options controller.ProvisionOptions) (*v1.Per
 		}
 	}
 	if err := p.checkDriverCapabilities(rc); err != nil {
-		return nil, err
+		return nil, controller.ProvisioningFinished, err
 	}
 
 	if options.PVC.Spec.Selector != nil {
-		return nil, fmt.Errorf("claim Selector is not supported")
+		return nil, controller.ProvisioningFinished, fmt.Errorf("claim Selector is not supported")
 	}
 
 	pvName, err := makeVolumeName(p.volumeNamePrefix, fmt.Sprintf("%s", options.PVC.ObjectMeta.UID), p.volumeNameUUIDLength)
 	if err != nil {
-		return nil, err
+		return nil, controller.ProvisioningFinished, err
 	}
 
 	fsTypesFound := 0
@@ -421,7 +429,7 @@ func (p *csiProvisioner) Provision(options controller.ProvisionOptions) (*v1.Per
 		}
 	}
 	if fsTypesFound > 1 {
-		return nil, fmt.Errorf("fstype specified in parameters with both \"fstype\" and \"%s\" keys", prefixedFsTypeKey)
+		return nil, controller.ProvisioningFinished, fmt.Errorf("fstype specified in parameters with both \"fstype\" and \"%s\" keys", prefixedFsTypeKey)
 	}
 	if len(fsType) == 0 {
 		fsType = defaultFSType
@@ -449,7 +457,7 @@ func (p *csiProvisioner) Provision(options controller.ProvisionOptions) (*v1.Per
 	if options.PVC.Spec.DataSource != nil && (rc.clone || rc.snapshot) {
 		volumeContentSource, err := p.getVolumeContentSource(options)
 		if err != nil {
-			return nil, fmt.Errorf("error getting handle for DataSource Type %s by Name %s: %v", options.PVC.Spec.DataSource.Kind, options.PVC.Spec.DataSource.Name, err)
+			return nil, controller.ProvisioningFinished, fmt.Errorf("error getting handle for DataSource Type %s by Name %s: %v", options.PVC.Spec.DataSource.Kind, options.PVC.Spec.DataSource.Name, err)
 		}
 		req.VolumeContentSource = volumeContentSource
 	}
@@ -463,7 +471,7 @@ func (p *csiProvisioner) Provision(options controller.ProvisionOptions) (*v1.Per
 			options.SelectedNode,
 			p.strictTopology)
 		if err != nil {
-			return nil, fmt.Errorf("error generating accessibility requirements: %v", err)
+			return nil, controller.ProvisioningFinished, fmt.Errorf("error generating accessibility requirements: %v", err)
 		}
 		req.AccessibilityRequirements = requirements
 	}
@@ -480,35 +488,35 @@ func (p *csiProvisioner) Provision(options controller.ProvisionOptions) (*v1.Per
 		},
 	})
 	if err != nil {
-		return nil, err
+		return nil, controller.ProvisioningFinished, err
 	}
 	provisionerCredentials, err := getCredentials(p.client, provisionerSecretRef)
 	if err != nil {
-		return nil, err
+		return nil, controller.ProvisioningFinished, err
 	}
 	req.Secrets = provisionerCredentials
 
 	// Resolve controller publish, node stage, node publish secret references
 	controllerPublishSecretRef, err := getSecretReference(controllerPublishSecretParams, options.StorageClass.Parameters, pvName, options.PVC)
 	if err != nil {
-		return nil, err
+		return nil, controller.ProvisioningFinished, err
 	}
 	nodeStageSecretRef, err := getSecretReference(nodeStageSecretParams, options.StorageClass.Parameters, pvName, options.PVC)
 	if err != nil {
-		return nil, err
+		return nil, controller.ProvisioningFinished, err
 	}
 	nodePublishSecretRef, err := getSecretReference(nodePublishSecretParams, options.StorageClass.Parameters, pvName, options.PVC)
 	if err != nil {
-		return nil, err
+		return nil, controller.ProvisioningFinished, err
 	}
 	controllerExpandSecretRef, err := getSecretReference(controllerExpandSecretParams, options.StorageClass.Parameters, pvName, options.PVC)
 	if err != nil {
-		return nil, err
+		return nil, controller.ProvisioningFinished, err
 	}
 
 	req.Parameters, err = removePrefixedParameters(options.StorageClass.Parameters)
 	if err != nil {
-		return nil, fmt.Errorf("failed to strip CSI Parameters of prefixed keys: %v", err)
+		return nil, controller.ProvisioningFinished, fmt.Errorf("failed to strip CSI Parameters of prefixed keys: %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), p.timeout)
@@ -516,7 +524,10 @@ func (p *csiProvisioner) Provision(options controller.ProvisionOptions) (*v1.Per
 	rep, err = p.csiClient.CreateVolume(ctx, &req)
 
 	if err != nil {
-		return nil, err
+		if status.Code(err) == codes.DeadlineExceeded {
+			return nil, controller.ProvisioningInBackground, err
+		}
+		return nil, controller.ProvisioningFinished, err
 	}
 
 	if rep.Volume != nil {
@@ -539,7 +550,8 @@ func (p *csiProvisioner) Provision(options controller.ProvisionOptions) (*v1.Per
 		if err != nil {
 			capErr = fmt.Errorf("%v. Cleanup of volume %s failed, volume is orphaned: %v", capErr, pvName, err)
 		}
-		return nil, capErr
+		//TODO(Shyam): Let it leak for now, one way to recover is to pass ProvisioningInBackground if err is timeout
+		return nil, controller.ProvisioningFinished, capErr
 	}
 
 	pv := &v1.PersistentVolume{
@@ -589,13 +601,13 @@ func (p *csiProvisioner) Provision(options controller.ProvisionOptions) (*v1.Per
 		if err != nil {
 			klog.Warningf("failed to translate CSI PV to in-tree due to: %v. Deleting provisioned PV", err)
 			p.Delete(pv)
-			return nil, err
+			return nil, controller.ProvisioningFinished, err
 		}
 	}
 
 	klog.Infof("successfully created PV %+v", pv.Spec.PersistentVolumeSource)
 
-	return pv, nil
+	return pv, controller.ProvisioningFinished, nil
 }
 
 func (p *csiProvisioner) supportsTopology() bool {
