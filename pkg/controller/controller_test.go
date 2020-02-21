@@ -514,7 +514,7 @@ func createFakePVCWithVolumeMode(requestBytes int64, volumeMode v1.PersistentVol
 }
 
 // fakeClaim returns a valid PVC with the requested settings
-func fakeClaim(name, namespace, claimUID, capacity, boundToVolume string, phase v1.PersistentVolumeClaimPhase, class *string) *v1.PersistentVolumeClaim {
+func fakeClaim(name, namespace, claimUID, capacity, boundToVolume string, phase v1.PersistentVolumeClaimPhase, class *string, volumeMode *v1.PersistentVolumeMode) *v1.PersistentVolumeClaim {
 	claim := v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
@@ -541,6 +541,10 @@ func fakeClaim(name, namespace, claimUID, capacity, boundToVolume string, phase 
 	if phase == v1.ClaimBound {
 		claim.Status.AccessModes = claim.Spec.AccessModes
 		claim.Status.Capacity = claim.Spec.Resources.Requests
+	}
+
+	if volumeMode != nil {
+		claim.Spec.VolumeMode = volumeMode
 	}
 
 	return &claim
@@ -2825,6 +2829,9 @@ func TestProvisionFromPVC(t *testing.T) {
 	wrongPVCNamespace := "pv-bound-to-another-pvc-by-namespace"
 	wrongPVCUID := "pv-bound-to-another-pvc-by-UID"
 	deletePolicy := v1.PersistentVolumeReclaimDelete
+	volumeModeBlock := v1.PersistentVolumeBlock
+	volumeModeFileSystem := v1.PersistentVolumeFilesystem
+	defaultVolumeMode := volumeModeFileSystem
 
 	type pvSpec struct {
 		Name          string
@@ -2844,6 +2851,7 @@ func TestProvisionFromPVC(t *testing.T) {
 		expectedPVSpec       *pvSpec
 		cloneSupport         bool
 		expectErr            bool
+		sourcePVCVolumeMode  *v1.PersistentVolumeMode
 	}{
 		"provision with pvc data source": {
 			clonePVName: pvName,
@@ -2870,6 +2878,7 @@ func TestProvisionFromPVC(t *testing.T) {
 							},
 						},
 						AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+						VolumeMode:  &defaultVolumeMode,
 						DataSource: &v1.TypedLocalObjectReference{
 							Name: srcName,
 							Kind: "PersistentVolumeClaim",
@@ -2921,6 +2930,7 @@ func TestProvisionFromPVC(t *testing.T) {
 							},
 						},
 						AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+						VolumeMode:  &defaultVolumeMode,
 						DataSource: &v1.TypedLocalObjectReference{
 							Name: srcName,
 							Kind: "PersistentVolumeClaim",
@@ -2958,6 +2968,7 @@ func TestProvisionFromPVC(t *testing.T) {
 							},
 						},
 						AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+						VolumeMode:  &defaultVolumeMode,
 						DataSource: &v1.TypedLocalObjectReference{
 							Name: srcName,
 							Kind: "PersistentVolumeClaim",
@@ -2995,6 +3006,7 @@ func TestProvisionFromPVC(t *testing.T) {
 							},
 						},
 						AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+						VolumeMode:  &defaultVolumeMode,
 						DataSource: &v1.TypedLocalObjectReference{
 							Name: srcName,
 							Kind: "PersistentVolumeClaim",
@@ -3033,6 +3045,7 @@ func TestProvisionFromPVC(t *testing.T) {
 							},
 						},
 						AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+						VolumeMode:  &defaultVolumeMode,
 						DataSource: &v1.TypedLocalObjectReference{
 							Name: srcName,
 							Kind: "PersistentVolumeClaim",
@@ -3071,6 +3084,7 @@ func TestProvisionFromPVC(t *testing.T) {
 							},
 						},
 						AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+						VolumeMode:  &defaultVolumeMode,
 						DataSource: &v1.TypedLocalObjectReference{
 							Name: "source-not-found",
 							Kind: "PersistentVolumeClaim",
@@ -3108,6 +3122,7 @@ func TestProvisionFromPVC(t *testing.T) {
 							},
 						},
 						AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+						VolumeMode:  &defaultVolumeMode,
 						DataSource: &v1.TypedLocalObjectReference{
 							Name: "pvc-sc-nil",
 							Kind: "PersistentVolumeClaim",
@@ -3144,6 +3159,7 @@ func TestProvisionFromPVC(t *testing.T) {
 							},
 						},
 						AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+						VolumeMode:  &defaultVolumeMode,
 						DataSource: &v1.TypedLocalObjectReference{
 							Name: srcName,
 							Kind: "PersistentVolumeClaim",
@@ -3181,6 +3197,7 @@ func TestProvisionFromPVC(t *testing.T) {
 							},
 						},
 						AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+						VolumeMode:  &defaultVolumeMode,
 						DataSource: &v1.TypedLocalObjectReference{
 							Name: invalidPVC,
 							Kind: "PersistentVolumeClaim",
@@ -3218,6 +3235,7 @@ func TestProvisionFromPVC(t *testing.T) {
 							},
 						},
 						AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+						VolumeMode:  &defaultVolumeMode,
 						DataSource: &v1.TypedLocalObjectReference{
 							Name: srcName,
 							Kind: "PersistentVolumeClaim",
@@ -3255,6 +3273,7 @@ func TestProvisionFromPVC(t *testing.T) {
 							},
 						},
 						AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+						VolumeMode:  &defaultVolumeMode,
 						DataSource: &v1.TypedLocalObjectReference{
 							Name: srcName,
 							Kind: "PersistentVolumeClaim",
@@ -3292,6 +3311,7 @@ func TestProvisionFromPVC(t *testing.T) {
 							},
 						},
 						AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+						VolumeMode:  &defaultVolumeMode,
 						DataSource: &v1.TypedLocalObjectReference{
 							Name: srcName,
 							Kind: "PersistentVolumeClaim",
@@ -3329,6 +3349,7 @@ func TestProvisionFromPVC(t *testing.T) {
 							},
 						},
 						AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+						VolumeMode:  &defaultVolumeMode,
 						DataSource: &v1.TypedLocalObjectReference{
 							Name: srcName,
 							Kind: "PersistentVolumeClaim",
@@ -3366,6 +3387,7 @@ func TestProvisionFromPVC(t *testing.T) {
 							},
 						},
 						AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+						VolumeMode:  &defaultVolumeMode,
 						DataSource: &v1.TypedLocalObjectReference{
 							Name: srcName,
 							Kind: "PersistentVolumeClaim",
@@ -3377,6 +3399,84 @@ func TestProvisionFromPVC(t *testing.T) {
 			expectedPVSpec: nil,
 			cloneSupport:   true,
 			expectErr:      true,
+		},
+		"provision with pvc volume mode Block, and source PVC volumeMode as Filesystem": {
+			clonePVName: pvName,
+			volOpts: controller.ProvisionOptions{
+				StorageClass: &storagev1.StorageClass{
+					ReclaimPolicy: &deletePolicy,
+					Parameters:    map[string]string{},
+					Provisioner:   driverName,
+				},
+				PVName: "new-pv-name",
+				PVC: &v1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:        "my-pvc",
+						Namespace:   srcNamespace,
+						UID:         "testid",
+						Annotations: map[string]string{annStorageProvisioner: driverName},
+					},
+					Spec: v1.PersistentVolumeClaimSpec{
+						StorageClassName: &fakeSc1,
+						Selector:         nil,
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								v1.ResourceName(v1.ResourceStorage): resource.MustParse(strconv.FormatInt(requestedBytes, 10)),
+							},
+						},
+						AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+						VolumeMode:  &volumeModeBlock,
+						DataSource: &v1.TypedLocalObjectReference{
+							Name: srcName,
+							Kind: "PersistentVolumeClaim",
+						},
+					},
+				},
+			},
+			sourcePVCVolumeMode: &volumeModeFileSystem,
+			pvcStatusReady:      true,
+			expectedPVSpec:      nil,
+			cloneSupport:        true,
+			expectErr:           true,
+		},
+		"provision with pvc volume mode Filesystem, and source PVC volumeMode as Block": {
+			clonePVName: pvName,
+			volOpts: controller.ProvisionOptions{
+				StorageClass: &storagev1.StorageClass{
+					ReclaimPolicy: &deletePolicy,
+					Parameters:    map[string]string{},
+					Provisioner:   driverName,
+				},
+				PVName: "new-pv-name",
+				PVC: &v1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:        "my-pvc",
+						Namespace:   srcNamespace,
+						UID:         "testid",
+						Annotations: map[string]string{annStorageProvisioner: driverName},
+					},
+					Spec: v1.PersistentVolumeClaimSpec{
+						StorageClassName: &fakeSc1,
+						Selector:         nil,
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								v1.ResourceName(v1.ResourceStorage): resource.MustParse(strconv.FormatInt(requestedBytes, 10)),
+							},
+						},
+						AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+						VolumeMode:  &volumeModeFileSystem,
+						DataSource: &v1.TypedLocalObjectReference{
+							Name: srcName,
+							Kind: "PersistentVolumeClaim",
+						},
+					},
+				},
+			},
+			sourcePVCVolumeMode: &volumeModeBlock,
+			pvcStatusReady:      true,
+			expectedPVSpec:      nil,
+			cloneSupport:        false,
+			expectErr:           true,
 		},
 	}
 
@@ -3464,12 +3564,16 @@ func TestProvisionFromPVC(t *testing.T) {
 		pvBoundToAnotherPVCName.Name = wrongPVCName
 		pvBoundToAnotherPVCName.Spec.ClaimRef.Name = "another-claim-name"
 
+		volumeMode := &defaultVolumeMode
+		if tc.sourcePVCVolumeMode != nil {
+			volumeMode = tc.sourcePVCVolumeMode
+		}
 		// Create a fake claim as our PVC DataSource
-		claim := fakeClaim(srcName, srcNamespace, "fake-claim-uid", "1Gi", tc.clonePVName, v1.ClaimBound, &fakeSc1)
+		claim := fakeClaim(srcName, srcNamespace, "fake-claim-uid", "1Gi", tc.clonePVName, v1.ClaimBound, &fakeSc1, volumeMode)
 		// Create a fake claim with invalid PV
-		invalidClaim := fakeClaim(invalidPVC, srcNamespace, "fake-claim-uid", "1Gi", "pv-not-present", v1.ClaimBound, &fakeSc1)
+		invalidClaim := fakeClaim(invalidPVC, srcNamespace, "fake-claim-uid", "1Gi", "pv-not-present", v1.ClaimBound, &fakeSc1, volumeMode)
 		/// Create a fake claim as source PVC storageclass nil
-		scNilClaim := fakeClaim("pvc-sc-nil", srcNamespace, "fake-claim-uid", "1Gi", pvName, v1.ClaimBound, nil)
+		scNilClaim := fakeClaim("pvc-sc-nil", srcNamespace, "fake-claim-uid", "1Gi", pvName, v1.ClaimBound, nil, volumeMode)
 		clientSet = fakeclientset.NewSimpleClientset(claim, scNilClaim, pv, invalidClaim, unboundPV, anotherDriverPV, pvBoundToAnotherPVCUID, pvBoundToAnotherPVCNamespace, pvBoundToAnotherPVCName)
 
 		pluginCaps, controllerCaps := provisionFromPVCCapabilities()

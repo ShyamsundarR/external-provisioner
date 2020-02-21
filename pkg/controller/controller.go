@@ -793,6 +793,19 @@ func (p *csiProvisioner) getPVCSource(options controller.ProvisionOptions) (*csi
 		return nil, fmt.Errorf("volume name is empty in source PVC %s", sourcePVC.Name)
 	}
 
+	if options.PVC.Spec.VolumeMode == nil {
+		return nil, fmt.Errorf("the requested PVC (%s) volumeMode cannot be empty", options.PVC.Name)
+	}
+
+	if sourcePVC.Spec.VolumeMode == nil {
+		return nil, fmt.Errorf("the source PVC (%s) volumeMode cannot be empty", sourcePVC.Name)
+	}
+
+	if *sourcePVC.Spec.VolumeMode != *options.PVC.Spec.VolumeMode {
+		return nil, fmt.Errorf("the source PVC and destination PVCs must have the same volumeMode for cloning.  Source is %v, but new PVC is %v",
+			*sourcePVC.Spec.VolumeMode, *options.PVC.Spec.VolumeMode)
+	}
+
 	sourcePV, err := p.client.CoreV1().PersistentVolumes().Get(sourcePVC.Spec.VolumeName, metav1.GetOptions{})
 	if err != nil {
 		klog.Warningf("error getting volume %s for PVC %s/%s: %s", sourcePVC.Spec.VolumeName, sourcePVC.Namespace, sourcePVC.Name, err)
